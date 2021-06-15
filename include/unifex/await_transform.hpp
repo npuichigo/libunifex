@@ -110,7 +110,13 @@ struct _awaitable_base<Promise, Value>::type {
       result_->state_ = _state::exception;
       continuation_.resume();
     }
-    
+
+    void set_error(std::error_code ec) && noexcept {
+      unifex::activate_union_member(result_->exception_, std::move(make_exception_ptr(ec)));
+      result_->state_ = _state::exception;
+      continuation_.resume();
+    }
+
     void set_done() && noexcept {
       result_->state_ = _state::done;
       continuation_.promise().unhandled_done().resume();

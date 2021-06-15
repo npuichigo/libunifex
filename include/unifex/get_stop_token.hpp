@@ -43,8 +43,10 @@ namespace _get_stop_token {
           return (StopToken&&) stoken_;
         }
       };
+#if !defined(__GNUC__) || (__GNUC__ < 10)
       template <typename StopToken>
       _awaiter(StopToken) -> _awaiter<StopToken>;
+#endif
 
       template (typename Tag, typename Promise)
         (requires same_as<Tag, tag_t<await_transform>>)
