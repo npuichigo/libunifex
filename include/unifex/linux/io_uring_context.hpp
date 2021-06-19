@@ -78,10 +78,6 @@ class io_uring_context {
     void (*execute_)(operation_base*) noexcept;
   };
 
-  struct completion_base : operation_base {
-    int result_;
-  };
-
   struct stop_operation : operation_base {
     stop_operation() noexcept {
       this->execute_ = [](operation_base * op) noexcept {
@@ -114,7 +110,7 @@ class io_uring_context {
   };
 
   using operation_queue =
-      intrusive_queue<operation_base, &operation_base::next_>;
+  intrusive_queue<operation_base, &operation_base::next_>;
 
   using timer_heap = intrusive_heap<
       schedule_at_operation,
@@ -123,16 +119,11 @@ class io_uring_context {
       time_point,
       &schedule_at_operation::dueTime_>;
 
-  bool is_running_on_io_thread() const noexcept;
   void run_impl(const bool& shouldStop);
 
   void schedule_impl(operation_base* op);
-  void schedule_local(operation_base* op) noexcept;
   void schedule_local(operation_queue ops) noexcept;
-  void schedule_remote(operation_base* op) noexcept;
 
-  // Schedule some operation to be run when there is next available I/O slots.
-  void schedule_pending_io(operation_base* op) noexcept;
   void reschedule_pending_io(operation_base* op) noexcept;
 
   // Insert the timer operation into the queue of timers.
@@ -177,12 +168,6 @@ class io_uring_context {
   void update_timers() noexcept;
   bool try_submit_timer_io(const time_point& dueTime) noexcept;
   bool try_submit_timer_io_cancel() noexcept;
-
-  // Try to submit an entry to the submission queue
-  //
-  // If there is space in the queue then populateSqe
-  template <typename PopulateFn>
-  bool try_submit_io(PopulateFn populateSqe) noexcept;
 
   // Total number of operations submitted that have not yet
   // completed.
@@ -275,6 +260,22 @@ class io_uring_context {
 
   // Queue of operations enqueued by remote threads.
   atomic_intrusive_queue<operation_base, &operation_base::next_> remoteQueue_;
+
+ protected:
+  struct completion_base : operation_base {
+    int result_;
+  };
+  void schedule_remote(operation_base* op) noexcept;
+  void schedule_local(operation_base* op) noexcept;
+  bool is_running_on_io_thread() const noexcept;
+  // Schedule some operation to be run when there is next available I/O slots.
+  void schedule_pending_io(operation_base* op) noexcept;
+
+  // Try to submit an entry to the submission queue
+  //
+  // If there is space in the queue then populateSqe
+  template <typename PopulateFn>
+  bool try_submit_io(PopulateFn populateSqe) noexcept;
 };
 
 template <typename StopToken>
@@ -288,14 +289,14 @@ void io_uring_context::run(StopToken stopToken) {
 
 template <typename PopulateFn>
 bool io_uring_context::try_submit_io(PopulateFn populateSqe) noexcept {
-  UNIFEX_ASSERT(is_running_on_io_thread());
+  assert(is_running_on_io_thread());
 
   if (pending_operation_count() < cqEntryCount_) {
     // Haven't reached limit of completion-queue yet.
     const auto tail = sqTail_->load(std::memory_order_relaxed);
     const auto head = sqHead_->load(std::memory_order_acquire);
     const auto usedCount = (tail - head);
-    UNIFEX_ASSERT(usedCount <= sqEntryCount_);
+    assert(usedCount <= sqEntryCount_);
     if (usedCount < sqEntryCount_) {
       // There is space in the submission-queue.
       const auto index = tail & sqMask_;
@@ -426,7 +427,7 @@ class io_uring_context::read_sender {
     }
 
     void start_io() noexcept {
-      UNIFEX_ASSERT(context_.is_running_on_io_thread());
+      assert(context_.is_running_on_io_thread());
 
       auto populateSqe = [this](io_uring_sqe & sqe) noexcept {
         sqe.opcode = IORING_OP_READV;
@@ -544,7 +545,7 @@ class io_uring_context::write_sender {
     }
 
     void start_io() noexcept {
-      UNIFEX_ASSERT(context_.is_running_on_io_thread());
+      assert(context_.is_running_on_io_thread());
 
       auto populateSqe = [this](io_uring_sqe & sqe) noexcept {
         sqe.opcode = IORING_OP_WRITEV;
@@ -715,9 +716,9 @@ class io_uring_context::schedule_at_sender {
         const time_point& dueTime,
         Receiver&& r)
         : schedule_at_operation(
-              context,
-              dueTime,
-              get_stop_token(r).stop_possible()),
+        context,
+        dueTime,
+        get_stop_token(r).stop_possible()),
           receiver_((Receiver &&) r) {}
 
     void start() noexcept {
@@ -740,7 +741,7 @@ class io_uring_context::schedule_at_sender {
         unifex::set_done(std::move(timerOp).receiver_);
       } else {
         // This should never be called if stop is not possible.
-        UNIFEX_ASSERT(false);
+        assert(false);
       }
     }
 
@@ -772,7 +773,7 @@ class io_uring_context::schedule_at_sender {
       // Avoid instantiating set_done() if we're never going to call it.
       if constexpr (is_stop_ever_possible) {
         auto& timerOp = *static_cast<operation*>(op);
-        UNIFEX_ASSERT(timerOp.context_.is_running_on_io_thread());
+        assert(timerOp.context_.is_running_on_io_thread());
 
         timerOp.stopCallback_.destruct();
 
@@ -785,7 +786,7 @@ class io_uring_context::schedule_at_sender {
         unifex::set_done(std::move(timerOp).receiver_);
       } else {
         // Should never be called if stop is not possible.
-        UNIFEX_ASSERT(false);
+        assert(false);
       }
     }
 
@@ -822,7 +823,7 @@ class io_uring_context::schedule_at_sender {
     }
 
     void request_stop_local() noexcept {
-      UNIFEX_ASSERT(context_.is_running_on_io_thread());
+      assert(context_.is_running_on_io_thread());
 
       stopCallback_.destruct();
 
